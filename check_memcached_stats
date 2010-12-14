@@ -41,6 +41,9 @@ def process_response( response ):
 stats = process_response( query_stats(host, port) )
 
 uptime = stats["uptime"]
+if uptime <= minimum_uptime:
+    print "CRITICAL - memcached has only been running for %s seconds" % uptime
+    sys.exit(2)
 
 if float(stats["cmd_get"]) > 0:
     hit_ratio = ( float(stats["get_hits"]) / float(stats["cmd_get"]) )
@@ -53,5 +56,5 @@ else:
     get_set_ratio = -1
 
 
-print "Uptime: %s" % uptime
-print "Ratios [ hit/miss: %f ] [ get/set: %f ]" % (hit_ratio, get_set_ratio)
+#print "Uptime: %s" % uptime
+#print "Ratios [ hit/miss: %f ] [ get/set: %f ]" % (hit_ratio, get_set_ratio)
