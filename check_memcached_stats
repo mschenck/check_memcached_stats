@@ -12,11 +12,42 @@ parser.add_option("-u", "--uptime", dest="uptime", help="minimum uptime, detect 
 
 (options, args) = parser.parse_args()
 
+
 host = options.host
 port = options.port
 minimum_uptime = options.uptime
 
-def query_stats( HOST, PORT ):
+
+class health:
+    def __init__(self):
+        self.code = 0
+        self.message = ""
+
+    def update_code(self, code):
+        if code > self.code:
+            self.code = code
+
+    def update_msg(self, message):
+        if len(self.message) > 0:
+            self.message = "%s, %s" % ( self.message, message)
+        else:
+            self.message = message
+
+    def exit(self):
+        health_message = ""
+        if self.code == 0:
+            health_message = "OK"
+        elif self.code == 1:
+            health_message = "WARNING"
+        elif self.code == 2:
+            health_message = "CRITICAL"
+        elif self.code == 3:
+            health_message = "UNKNOWN"
+
+        print "%s - %s" % (health_message, self.message)
+        sys.exit(self.code)
+
+def query_stats( HOST, PORT, health ):
     """ Connect to the passed memcached host:port and requests 'stats' """
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -26,10 +57,12 @@ def query_stats( HOST, PORT ):
         client.close()
         return response
     except Exception, e:
-        print "Error connecting to %s:%d - %s" % (HOST, PORT, e)
-        sys.exit(1)
+        health.update_msg("Host unreachable")
+        health.update_code(2)
+        health.exit()
 
-def process_response( response ):
+
+def process_response( response, health ):
     """ Pull all stats out of the response and load up a dict from them """
     stats = {}
     for line in response.split('\n'):
@@ -38,23 +71,35 @@ def process_response( response ):
             stats[fields[1]] = fields[2]
     return stats
 
-stats = process_response( query_stats(host, port) )
 
-uptime = stats["uptime"]
-if uptime <= minimum_uptime:
-    print "CRITICAL - memcached has only been running for %s seconds" % uptime
-    sys.exit(2)
+def process_stats( stats, health ):
+    try:
+        uptime = stats["uptime"]
+        if int(uptime) <= int(minimum_uptime):
+            health.update_msg( "uptime only:" + uptime )
+            health.update_code(2)
+        else:
+            health.update_msg("memcached is healthy")
 
-if float(stats["cmd_get"]) > 0:
-    hit_ratio = ( float(stats["get_hits"]) / float(stats["cmd_get"]) )
-else:
-    hit_ratio = -1
+        if float(stats["cmd_get"]) > 0:
+            hit_ratio = ( float(stats["get_hits"]) / float(stats["cmd_get"]) )
+        else:
+            hit_ratio = -1
+        
+        if float(stats["cmd_set"]) > 0:
+            get_set_ratio = ( float(stats["cmd_get"]) / float(stats["cmd_set"]) )
+        else:
+            get_set_ratio = -1
 
-if float(stats["cmd_set"]) > 0:
-    get_set_ratio = ( float(stats["cmd_get"]) / float(stats["cmd_set"]) )
-else:
-    get_set_ratio = -1
+    except Exception, e:
+        health.update_msg("results mangled with exception: %s" % e)
+        health.update_code(3)
 
 
-#print "Uptime: %s" % uptime
-#print "Ratios [ hit/miss: %f ] [ get/set: %f ]" % (hit_ratio, get_set_ratio)
+memcached_health = health()
+
+response = query_stats(host, port, memcached_health)
+stats = process_response(response, memcached_health)
+process_stats(stats, memcached_health)
+
+memcached_health.exit()
