@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+
+from optparse import OptionParser
+import socket
+import sys
+
+parser = OptionParser()
+parser.add_option("-H", "--host", dest="host", help="memcached server hostname/IP", default="127.0.0.1")
+parser.add_option("-P", "--port", dest="port", help="memcached server port(defaults to 11211)", default=11211)
+
+parser.add_option("-u", "--uptime", dest="uptime", help="minimum uptime, detect server crashed", default=0)
+
+(options, args) = parser.parse_args()
+
+host = options.host
+port = options.port
+minimum_uptime = options.uptime
+
+def query_stats( HOST, PORT ):
+    """ Connect to the passed memcached host:port and requests 'stats' """
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client.connect( (HOST, PORT) )
+        client.send('stats\n')
+        response = client.recv(1024)
+        client.close()
+        return response
+    except Exception, e:
+        print "Error connecting to %s:%d - %s" % (HOST, PORT, e)
+        sys.exit(1)
+
+def process_response( response ):
+    """ Pull all stats out of the response and load up a dict from them """
+    stats = {}
+    for line in response.split('\n'):
+        fields = line.split(' ')
+        if fields[0] == "STAT":
+            stats[fields[1]] = fields[2]
+    return stats
+
+stats = process_response( query_stats(host, port) )
+
+uptime = stats["uptime"]
+
+if float(stats["cmd_get"]) > 0:
+    hit_ratio = ( float(stats["get_hits"]) / float(stats["cmd_get"]) )
+else:
+    hit_ratio = -1
+
+if float(stats["cmd_set"]) > 0:
+    get_set_ratio = ( float(stats["cmd_get"]) / float(stats["cmd_set"]) )
+else:
+    get_set_ratio = -1
+
+
+print "Uptime: %s" % uptime
+print "Ratios [ hit/miss: %f ] [ get/set: %f ]" % (hit_ratio, get_set_ratio)
